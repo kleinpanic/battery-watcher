@@ -1,0 +1,13 @@
+[Unit]
+Description=Battery Watcher Daemon
+After=network.target
+
+[Service]
+Type=simple
+Environment="BATTERY_NOTIFY_CMD=/home/broklein/.local/bin/kc-notify alert"
+ExecStart=%h/.local/bin/battery-watcher
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
