@@ -1,0 +1,21 @@
+# Build artifacts
+battery-watcher
+*.o
+*.out
+
+# Debug
+*.dSYM/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribution
+dist/
+*.tar.gz

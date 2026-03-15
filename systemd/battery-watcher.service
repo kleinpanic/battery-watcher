@@ -1,0 +1,12 @@
+[Unit]
+Description=Battery Watcher Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/battery-watcher
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
