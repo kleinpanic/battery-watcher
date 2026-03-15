@@ -12,7 +12,8 @@
 #define BATTERY_PATH "/sys/class/power_supply/BAT0"
 
 // Default notify command (override via BATTERY_NOTIFY_CMD env)
-#define DEFAULT_NOTIFY_CMD "/home/broklein/.local/bin/kc-notify"
+// Falls back to notify-send if not set
+#define DEFAULT_NOTIFY_CMD "/usr/bin/notify-send"
 
 // Notification thresholds (percent)
 #define THRESHOLD_1 25

@@ -37,8 +37,14 @@ sudo cp .env.example /etc/battery-watcher.conf
 Edit `/etc/battery-watcher.conf`:
 
 ```
-BATTERY_NOTIFY_CMD=/path/to/your/notify-script
+# For ntfy.sh via kc-notify (with profile):
+BATTERY_NOTIFY_CMD=/path/to/kc-notify alert
+
+# Or desktop notifications:
+BATTERY_NOTIFY_CMD=/usr/bin/notify-send "Battery Alert"
 ```
+
+The message ("Battery at X%") is appended automatically.
 
 ## Usage
 

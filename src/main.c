@@ -75,11 +75,11 @@ int read_battery_status(char *status, size_t len) {
 
 int send_notification(int capacity) {
     char cmd[512];
-    char msg[128];
+    char msg[64];
     const char *notify_cmd = get_notify_cmd();
     
     snprintf(msg, sizeof(msg), "Battery at %d%%", capacity);
-    snprintf(cmd, sizeof(cmd), "%s alert \"%s\"", notify_cmd, msg);
+    snprintf(cmd, sizeof(cmd), "%s \"%s\"", notify_cmd, msg);
     
     int ret = system(cmd);
     if (ret != 0) {
@@ -175,7 +175,7 @@ void print_usage(const char *prog) {
     printf("  -d            Daemonize\n");
     printf("  -h            Show help\n");
     printf("\nEnvironment:\n");
-    printf("  BATTERY_NOTIFY_CMD  Notification command (default: %s)\n", DEFAULT_NOTIFY_CMD);
+    printf("  BATTERY_NOTIFY_CMD  Full command prefix (default: %s \"Battery\")\n", DEFAULT_NOTIFY_CMD);
     printf("\nThresholds: %d%%, %d%%, %d%%, %d%%\n", THRESHOLD_1, THRESHOLD_2, THRESHOLD_3, THRESHOLD_4);
 }
 
