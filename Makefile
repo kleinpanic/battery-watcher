@@ -27,6 +27,5 @@ uninstall:
 	rm -f $(DESTDIR)/etc/systemd/system/battery-watcher.service
 
 test: $(TARGET)
-	@echo "Testing build..."
-	./$(TARGET) -h
-	@echo "OK"
+	@echo "Running tests..."
+	./tests/run.sh
