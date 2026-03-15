@@ -1,15 +1,14 @@
 # Battery Watcher
 
-Lightweight C daemon that monitors battery level and sends ntfy notifications at critical thresholds.
+Lightweight C daemon that monitors battery level and sends notifications at critical thresholds.
 
 ## Features
 
-- Polls battery capacity via sysfs
-- Only notifies when **discharging** (no spam while charging)
-- Threshold notifications: 25%, 15%, 10%, 5%
-- Each threshold fires once per discharge cycle
-- Low resource usage: sleeps 99.9% of the time
-- Systemd integration
+- **Event-driven + polling hybrid**: Uses ACPI events for instant AC plug detection
+- **Low resource usage**: Polls only when discharging, sleeps otherwise
+- **Smart notifications**: Each threshold fires once per discharge cycle
+- **No log spam**: Uses syslog/journal, respects LOG_NOTICE level
+- Thresholds: 25%, 15%, 10%, 5%
 
 ## Build
 
@@ -23,21 +22,35 @@ make
 sudo make install
 ```
 
-This installs:
-- Binary to `/usr/local/bin/battery-watcher`
-- Systemd service to `/etc/systemd/system/battery-watcher.service`
+Creates:
+- `/usr/local/bin/battery-watcher`
+- `/etc/systemd/system/battery-watcher.service`
+
+## Configuration
+
+Copy the example env file:
+
+```bash
+sudo cp .env.example /etc/battery-watcher.conf
+```
+
+Edit `/etc/battery-watcher.conf`:
+
+```
+BATTERY_NOTIFY_CMD=/path/to/your/notify-script
+```
 
 ## Usage
 
 ```
 battery-watcher [-i INTERVAL] [-d] [-h]
 
-  -i INTERVAL   Poll interval in seconds (default: 30)
-  -d            Daemonize (run in background)
-  -h            Show help
+  -i SECONDS    Poll interval when discharging (default: 60)
+  -d            Daemonize
+  -h            Help
 ```
 
-### Systemd Service
+### Systemd
 
 ```bash
 sudo systemctl enable --now battery-watcher
@@ -49,19 +62,26 @@ sudo systemctl enable --now battery-watcher
 journalctl -u battery-watcher -f
 ```
 
-## Configuration
+Logs are written to syslog (LOG_DAEMON facility). Important events use LOG_NOTICE, debug info uses LOG_DEBUG (hidden by default in journal).
 
-Edit `include/config.h` to change:
-- Poll interval
-- Threshold percentages
-- Notification command
-- Battery path
+To see debug logs:
+```bash
+journalctl -u battery-watcher -p debug -f
+```
 
-Rebuild after changes.
+## How It Works
+
+1. Connects to acpid socket for AC adapter events
+2. When charging: sleeps, no polling
+3. When unplugged: polls battery every 60s
+4. On threshold crossing: sends notification once
+5. Resets when plugged in
 
 ## Notifications
 
-Uses `~/.local/bin/kc-notify` which wraps ntfy.sh. Configure profiles in `~/.openclaw/data/ntfy-profiles.yml`.
+Uses `kc-notify` (ntfy.sh wrapper). Configure in `~/.openclaw/data/ntfy-profiles.yml`.
+
+Override via `BATTERY_NOTIFY_CMD` environment variable.
 
 ## License
 

@@ -6,9 +6,12 @@
 #include <syslog.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <getopt.h>
+#include <time.h>
 #include "config.h"
 
 static volatile int running = 1;
@@ -18,7 +21,7 @@ static int daemonize = 0;
 // Threshold state tracking
 typedef struct {
     int threshold;
-    int notified;  // 0 = not notified this discharge cycle
+    int notified;
 } threshold_state;
 
 static threshold_state thresholds[THRESHOLD_COUNT] = {
@@ -27,6 +30,12 @@ static threshold_state thresholds[THRESHOLD_COUNT] = {
     {THRESHOLD_3, 0},
     {THRESHOLD_4, 0}
 };
+
+// Get notify command from env or default
+static const char* get_notify_cmd(void) {
+    const char *cmd = getenv("BATTERY_NOTIFY_CMD");
+    return cmd ? cmd : DEFAULT_NOTIFY_CMD;
+}
 
 void signal_handler(int sig) {
     switch (sig) {
@@ -39,14 +48,10 @@ void signal_handler(int sig) {
 
 int read_battery_capacity(void) {
     FILE *fp = fopen(BATTERY_PATH "/capacity", "r");
-    if (!fp) {
-        syslog(LOG_ERR, "Failed to open capacity file: %s", strerror(errno));
-        return -1;
-    }
+    if (!fp) return -1;
     
     int capacity;
     if (fscanf(fp, "%d", &capacity) != 1) {
-        syslog(LOG_ERR, "Failed to read capacity");
         fclose(fp);
         return -1;
     }
@@ -56,19 +61,14 @@ int read_battery_capacity(void) {
 
 int read_battery_status(char *status, size_t len) {
     FILE *fp = fopen(BATTERY_PATH "/status", "r");
-    if (!fp) {
-        syslog(LOG_ERR, "Failed to open status file: %s", strerror(errno));
-        return -1;
-    }
+    if (!fp) return -1;
     
     if (!fgets(status, len, fp)) {
-        syslog(LOG_ERR, "Failed to read status");
         fclose(fp);
         return -1;
     }
     fclose(fp);
     
-    // Strip newline
     status[strcspn(status, "\n")] = 0;
     return 0;
 }
@@ -76,17 +76,18 @@ int read_battery_status(char *status, size_t len) {
 int send_notification(int capacity) {
     char cmd[512];
     char msg[128];
+    const char *notify_cmd = get_notify_cmd();
     
     snprintf(msg, sizeof(msg), "Battery at %d%%", capacity);
-    snprintf(cmd, sizeof(cmd), "%s alert \"%s\"", NOTIFY_CMD, msg);
+    snprintf(cmd, sizeof(cmd), "%s alert \"%s\"", notify_cmd, msg);
     
     int ret = system(cmd);
     if (ret != 0) {
-        syslog(LOG_WARNING, "Notification command failed with status %d", ret);
+        syslog(LOG_WARNING, "Notification failed: %s", msg);
         return -1;
     }
     
-    syslog(LOG_INFO, "Sent notification: %s", msg);
+    syslog(LOG_NOTICE, "Sent: %s", msg);
     return 0;
 }
 
@@ -94,12 +95,10 @@ void check_thresholds(int capacity, int is_discharging) {
     for (int i = 0; i < THRESHOLD_COUNT; i++) {
         if (capacity <= thresholds[i].threshold) {
             if (is_discharging && !thresholds[i].notified) {
-                // Crossing threshold while discharging - notify
                 send_notification(capacity);
                 thresholds[i].notified = 1;
             }
         } else {
-            // Capacity rose above threshold - reset notification flag
             thresholds[i].notified = 0;
         }
     }
@@ -109,6 +108,40 @@ void reset_thresholds(void) {
     for (int i = 0; i < THRESHOLD_COUNT; i++) {
         thresholds[i].notified = 0;
     }
+}
+
+// Connect to acpid socket for AC events
+int connect_acpid(void) {
+    int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sock < 0) return -1;
+    
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, ACPID_SOCKET, sizeof(addr.sun_path) - 1);
+    
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(sock);
+        return -1;
+    }
+    
+    return sock;
+}
+
+// Parse ACPI event for AC adapter change
+// Returns: 1 if unplugged, -1 if plugged, 0 if other
+int parse_acpi_event(const char *event) {
+    // acpid events look like: "ac_adapter ACPI0003:00 00000080 00000000"
+    // or: "battery BAT0 00000080 00000001" (capacity change, but unreliable)
+    
+    if (strstr(event, "ac_adapter")) {
+        if (strstr(event, "00000000")) {
+            return -1; // Plugged in
+        } else if (strstr(event, "00000001")) {
+            return 1;  // Unplugged
+        }
+    }
+    return 0;
 }
 
 void write_pid_file(void) {
@@ -121,21 +154,11 @@ void write_pid_file(void) {
 
 void daemon_start(void) {
     pid_t pid = fork();
-    if (pid < 0) {
-        fprintf(stderr, "Failed to fork: %s\n", strerror(errno));
-        exit(1);
-    }
-    if (pid > 0) {
-        exit(0);  // Parent exits
-    }
+    if (pid < 0) exit(1);
+    if (pid > 0) exit(0);
     
-    // Child continues
-    if (setsid() < 0) {
-        fprintf(stderr, "Failed to setsid: %s\n", strerror(errno));
-        exit(1);
-    }
+    if (setsid() < 0) exit(1);
     
-    // Redirect standard files
     freopen("/dev/null", "r", stdin);
     freopen("/dev/null", "w", stdout);
     freopen("/dev/null", "w", stderr);
@@ -146,13 +169,14 @@ void daemon_start(void) {
 
 void print_usage(const char *prog) {
     printf("Usage: %s [OPTIONS]\n\n", prog);
-    printf("Battery watcher daemon - monitors battery and sends ntfy notifications.\n\n");
+    printf("Battery watcher - monitors battery and sends notifications.\n\n");
     printf("Options:\n");
-    printf("  -i INTERVAL   Poll interval in seconds (default: %d)\n", DEFAULT_POLL_INTERVAL);
-    printf("  -d            Daemonize (run in background)\n");
-    printf("  -h            Show this help\n");
+    printf("  -i SECONDS    Poll interval when discharging (default: %d)\n", DEFAULT_POLL_INTERVAL);
+    printf("  -d            Daemonize\n");
+    printf("  -h            Show help\n");
+    printf("\nEnvironment:\n");
+    printf("  BATTERY_NOTIFY_CMD  Notification command (default: %s)\n", DEFAULT_NOTIFY_CMD);
     printf("\nThresholds: %d%%, %d%%, %d%%, %d%%\n", THRESHOLD_1, THRESHOLD_2, THRESHOLD_3, THRESHOLD_4);
-    printf("Notifications sent via: %s\n", NOTIFY_CMD);
 }
 
 int main(int argc, char *argv[]) {
@@ -162,10 +186,7 @@ int main(int argc, char *argv[]) {
         switch (opt) {
             case 'i':
                 poll_interval = atoi(optarg);
-                if (poll_interval < 5) {
-                    fprintf(stderr, "Minimum poll interval is 5 seconds\n");
-                    exit(1);
-                }
+                if (poll_interval < 10) poll_interval = 10;
                 break;
             case 'd':
                 daemonize = 1;
@@ -179,14 +200,13 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    // Setup signal handlers
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
     signal(SIGHUP, SIG_IGN);
     
-    // Open syslog
-    openlog("battery-watcher", LOG_PID | LOG_CONS, LOG_DAEMON);
-    syslog(LOG_INFO, "Starting battery watcher (interval: %ds)", poll_interval);
+    // Use LOG_DAEMON facility - logs to /var/log/daemon.log or journal
+    // LOG_NOTICE and above are important, LOG_DEBUG/INFO are filtered by default
+    openlog("battery-watcher", LOG_PID, LOG_DAEMON);
     
     if (daemonize) {
         daemon_start();
@@ -194,41 +214,85 @@ int main(int argc, char *argv[]) {
     
     write_pid_file();
     
+    int acpi_sock = connect_acpid();
+    if (acpi_sock >= 0) {
+        syslog(LOG_INFO, "Connected to acpid socket");
+    } else {
+        syslog(LOG_INFO, "No acpid, using polling only (interval: %ds)", poll_interval);
+    }
+    
     char status[32];
-    int last_capacity = -1;
     int was_charging = 0;
+    time_t last_check = 0;
     
     while (running) {
-        int capacity = read_battery_capacity();
+        time_t now = time(NULL);
         
+        // Check battery state
         if (read_battery_status(status, sizeof(status)) == 0) {
             int is_discharging = (strcmp(status, "Discharging") == 0);
             int is_charging = (strcmp(status, "Charging") == 0);
             
-            // Reset thresholds when charging starts
+            // Reset on charging
             if (is_charging && !was_charging) {
-                syslog(LOG_INFO, "Charging started - resetting threshold notifications");
+                syslog(LOG_INFO, "Charging started - thresholds reset");
                 reset_thresholds();
             }
             was_charging = is_charging;
             
-            if (capacity >= 0 && is_discharging) {
-                check_thresholds(capacity, 1);
-            }
-            
-            // Log state change
-            if (capacity != last_capacity) {
-                syslog(LOG_DEBUG, "Battery: %d%% (%s)", capacity, status);
-                last_capacity = capacity;
+            // Only poll capacity when discharging and enough time passed
+            if (is_discharging && (now - last_check >= poll_interval)) {
+                int capacity = read_battery_capacity();
+                if (capacity >= 0) {
+                    check_thresholds(capacity, 1);
+                }
+                last_check = now;
             }
         }
         
-        sleep(poll_interval);
+        // Use select to wait for ACPI events or timeout
+        if (acpi_sock >= 0) {
+            fd_set fds;
+            struct timeval tv;
+            
+            FD_ZERO(&fds);
+            FD_SET(acpi_sock, &fds);
+            
+            // Wait up to poll_interval for ACPI event
+            tv.tv_sec = poll_interval;
+            tv.tv_usec = 0;
+            
+            int ret = select(acpi_sock + 1, &fds, NULL, NULL, &tv);
+            
+            if (ret > 0 && FD_ISSET(acpi_sock, &fds)) {
+                char buf[256];
+                ssize_t n = read(acpi_sock, buf, sizeof(buf) - 1);
+                if (n > 0) {
+                    buf[n] = 0;
+                    int event = parse_acpi_event(buf);
+                    if (event != 0) {
+                        syslog(LOG_DEBUG, "ACPI: %s", buf);
+                        // Force immediate check on AC event
+                        last_check = 0;
+                    }
+                } else if (n == 0) {
+                    // Socket closed, reconnect
+                    close(acpi_sock);
+                    acpi_sock = connect_acpid();
+                    if (acpi_sock < 0) {
+                        syslog(LOG_WARNING, "Lost acpid connection");
+                    }
+                }
+            }
+        } else {
+            // No acpid, just sleep
+            sleep(poll_interval);
+        }
     }
     
-    // Cleanup
+    if (acpi_sock >= 0) close(acpi_sock);
     unlink(DEFAULT_PID_FILE);
-    syslog(LOG_INFO, "Battery watcher stopped");
+    syslog(LOG_INFO, "Stopped");
     closelog();
     
     return 0;

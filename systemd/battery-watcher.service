@@ -1,12 +1,18 @@
 [Unit]
 Description=Battery Watcher Daemon
-After=network.target
+After=network.target acpid.service
+Requires=acpid.service
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/battery-watcher.conf
 ExecStart=/usr/local/bin/battery-watcher
 Restart=on-failure
 RestartSec=5
+
+# Logging via syslog/journal - no separate log files
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

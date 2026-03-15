@@ -6,6 +6,11 @@ battery-watcher
 # Debug
 *.dSYM/
 
+# Environment files (may contain secrets)
+.env
+.env.local
+*.env
+
 # IDE
 .vscode/
 .idea/
