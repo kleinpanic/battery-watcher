@@ -85,9 +85,9 @@ journalctl -u battery-watcher -p debug -f
 
 ## Notifications
 
-Uses `kc-notify` (ntfy.sh wrapper). Configure in `~/.openclaw/data/ntfy-profiles.yml`.
+Default command is `/usr/bin/notify-send` (`DEFAULT_NOTIFY_CMD` in `include/config.h`), so no extra setup is needed on a desktop.
 
-Override via `BATTERY_NOTIFY_CMD` environment variable.
+Set `BATTERY_NOTIFY_CMD` to use another command, for example the `kc-notify` (ntfy.sh) wrapper configured in `~/.openclaw/data/ntfy-profiles.yml`.
 
 ## License
 
