@@ -55,5 +55,22 @@ else
     echo "PASS"
 fi
 
+# Test 6: one reading below several thresholds sends exactly one notification
+echo -n "Test 6: single reading emits exactly one notification... "
+TEST_BIN="$ROOT_DIR/bw-threshold-test"
+gcc -Wall -Wextra -O2 -I"$ROOT_DIR/include" -c -Dmain=bw_main \
+    "$ROOT_DIR/src/main.c" -o "$ROOT_DIR/bw-main.o"
+gcc -Wall -Wextra -O2 -I"$ROOT_DIR/include" \
+    -o "$TEST_BIN" "$ROOT_DIR/tests/test_thresholds.c" "$ROOT_DIR/bw-main.o"
+OUT=$(BATTERY_NOTIFY_CMD=/bin/echo "$TEST_BIN" 2>/dev/null)
+rm -f "$TEST_BIN" "$ROOT_DIR/bw-main.o"
+NOTICES=$(printf '%s\n' "$OUT" | grep -c 'Battery at' || true)
+if [ "$NOTICES" -eq 1 ]; then
+    echo "PASS"
+else
+    echo "FAIL (expected 1 notification, got $NOTICES)"
+    exit 1
+fi
+
 echo ""
 echo "=== All tests passed ==="

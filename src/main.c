@@ -92,15 +92,23 @@ int send_notification(int capacity) {
 }
 
 void check_thresholds(int capacity, int is_discharging) {
+    int notify_now = 0;
+
     for (int i = 0; i < THRESHOLD_COUNT; i++) {
         if (capacity <= thresholds[i].threshold) {
+            // Mark every threshold this reading is below as notified, but
+            // send a single notification for the reading itself.
             if (is_discharging && !thresholds[i].notified) {
-                send_notification(capacity);
                 thresholds[i].notified = 1;
+                notify_now = 1;
             }
         } else {
             thresholds[i].notified = 0;
         }
+    }
+
+    if (notify_now) {
+        send_notification(capacity);
     }
 }
 
