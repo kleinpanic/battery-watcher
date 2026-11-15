@@ -152,8 +152,47 @@ int parse_acpi_event(const char *event) {
     return 0;
 }
 
+// Directory that holds the pid file: the per-user runtime directory when the
+// environment provides one, $HOME/.run for a user-space install, /run otherwise.
+static void pid_file_path(char *path, size_t len) {
+    const char *dir = getenv("XDG_RUNTIME_DIR");
+    const char *home = getenv("HOME");
+
+    if (dir && *dir)
+        snprintf(path, len, "%s/%s", dir, PID_FILE_NAME);
+    else if (home && *home)
+        snprintf(path, len, "%s/.run/" PID_FILE_NAME, home);
+    else
+        snprintf(path, len, "%s", DEFAULT_PID_FILE);
+}
+
+// Create the directory part of a pid file path that does not exist yet.
+static void ensure_pid_dir(const char *path) {
+    char dir[512];
+    char *slash = strrchr(path, '/');
+
+    if (!slash || slash == path)
+        return;
+    if ((size_t)(slash - path) >= sizeof(dir))
+        return;
+    memcpy(dir, path, (size_t)(slash - path));
+    dir[slash - path] = '\0';
+    mkdir(dir, 0755);
+}
+
 void write_pid_file(void) {
-    FILE *fp = fopen(DEFAULT_PID_FILE, "w");
+    char path[512];
+
+    pid_file_path(path, sizeof(path));
+    FILE *fp = fopen(path, "w");
+    if (!fp) {
+        ensure_pid_dir(path);
+        fp = fopen(path, "w");
+    }
+    if (!fp) {
+        snprintf(path, sizeof(path), "%s", DEFAULT_PID_FILE);
+        fp = fopen(path, "w");
+    }
     if (fp) {
         fprintf(fp, "%d\n", getpid());
         fclose(fp);
@@ -299,7 +338,11 @@ int main(int argc, char *argv[]) {
     }
     
     if (acpi_sock >= 0) close(acpi_sock);
-    unlink(DEFAULT_PID_FILE);
+    {
+        char path[512];
+        pid_file_path(path, sizeof(path));
+        unlink(path);
+    }
     syslog(LOG_INFO, "Stopped");
     closelog();
     

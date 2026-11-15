@@ -3,7 +3,12 @@
 
 // Poll interval when discharging (can be longer since we use ACPI events)
 #define DEFAULT_POLL_INTERVAL 60
+// Runtime directory for the pid file. /run is only used when the environment
+// gives no per-user runtime directory (system install).
 #define DEFAULT_PID_FILE "/run/battery-watcher.pid"
+
+// Name of the pid file inside the per-user runtime directory.
+#define PID_FILE_NAME "battery-watcher.pid"
 
 // ACPID socket for AC adapter events
 #define ACPID_SOCKET "/run/acpid.socket"
