@@ -143,9 +143,11 @@ int parse_acpi_event(const char *event) {
     // or: "battery BAT0 00000080 00000001" (capacity change, but unreliable)
     
     if (strstr(event, "ac_adapter")) {
-        if (strstr(event, "00000000")) {
+        // The trailing field is the AC presence state, the same value sysfs
+        // exposes as AC/online: 1 means the adapter is present, 0 removed.
+        if (strstr(event, "00000001")) {
             return -1; // Plugged in
-        } else if (strstr(event, "00000001")) {
+        } else if (strstr(event, "00000000")) {
             return 1;  // Unplugged
         }
     }
