@@ -26,7 +26,7 @@ install: $(TARGET)
 	install -m 644 .env.example $(DESTDIR)/etc/battery-watcher.conf.example
 
 uninstall:
-	rm -f $(PREFIX)/bin/$(TARGET)
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(TARGET)
 	rm -f $(DESTDIR)/etc/systemd/system/battery-watcher.service
 
 # User-space install (no sudo)

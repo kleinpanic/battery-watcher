@@ -111,5 +111,14 @@ else
     exit 1
 fi
 
+# Test 7: a staged install is reversible: uninstall must undo the install it is
+# paired with inside the same DESTDIR root, not a different tree.
+echo -n "Test 7: DESTDIR-aware uninstall... "
+if ! sh "$ROOT_DIR/tests/test_destdir.sh" >/dev/null; then
+    echo "FAIL"
+    exit 1
+fi
+echo "PASS"
+
 echo ""
 echo "=== All tests passed ==="
